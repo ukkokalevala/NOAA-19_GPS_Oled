@@ -1,0 +1,19 @@
+#include <SoftwareSerial.h>
+
+static const int RXPin = D3, TXPin = D4;
+static const uint32_t GPSBaud = 9600;
+
+SoftwareSerial ss(RXPin, TXPin);
+
+void setup() {
+  Serial.begin(9600);
+  ss.begin(GPSBaud);
+  Serial.println("GPS Module Test - Waiting for data...");
+}
+
+void loop() {
+  while (ss.available() > 0) {
+    char c = ss.read();
+    Serial.print(c);  // Print raw GPS data to the Serial Monitor
+  }
+}
