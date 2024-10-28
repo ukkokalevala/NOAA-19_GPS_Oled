@@ -1,0 +1,139 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <SoftwareSerial.h>
+#include <TinyGPS++.h>
+#include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
+#include <ESP8266HTTPClient.h>
+#include <ArduinoJson.h>
+#include "secrets.h"
+
+// OLED setup
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// GPS setup
+TinyGPSPlus gps;
+SoftwareSerial gpsSerial(D3, D4);  // RX (D3), TX (D4)
+
+// Wi-Fi credentials
+//const char* ssid = "yourSSID";
+//const char* password = "yourPASSWORD";
+
+// N2YO API
+String apiKey = "NH74CL-F9XL2D-EU42SJ-5CZB";
+String satID = "33591";  // NOAA-19 Satellite ID
+
+void setup() {
+  Serial.begin(115200);
+  gpsSerial.begin(9600);
+
+  // Initialize OLED
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);
+  }
+
+  // Clear the Adafruit logo and display setup message
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("NOAA-19 Tracker Init...");
+  display.display();
+  delay(2000);  // Pause to show init message
+
+  // Connect to Wi-Fi
+  Serial.println("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting...");
+  }
+  Serial.println("Connected to WiFi");
+}
+
+void fetchNOAA19Data(float myLat, float myLon) {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+
+    // API URL
+    String url = "https://api.n2yo.com/rest/v1/satellite/positions/" + satID + "/" + String(myLat, 6) + "/" + String(myLon, 6) + "/0/1/&apiKey=" + apiKey;
+
+    http.begin(client, url);
+    int httpResponseCode = http.GET();
+
+    if (httpResponseCode > 0) {
+      String payload = http.getString();
+      Serial.println("HTTP Response Code: " + String(httpResponseCode));
+      Serial.println("Received Data: " + payload);
+      
+      // Parse JSON response
+      StaticJsonDocument<1024> doc;
+      DeserializationError error = deserializeJson(doc, payload);
+      
+      if (!error) {
+        float satLatitude = doc["positions"][0]["satlatitude"];
+        float satLongitude = doc["positions"][0]["satlongitude"];
+        float distance = calculateDistance(myLat, myLon, satLatitude, satLongitude);
+        
+        // Display data on OLED
+        display.clearDisplay();
+        display.setCursor(0, 0);
+        display.print("NOAA-19 Tracker");
+
+        display.setCursor(0, 16);
+        display.print("Lat: ");
+        display.print(satLatitude, 4);
+
+        display.setCursor(0, 28);
+        display.print("Lon: ");
+        display.print(satLongitude, 4);
+
+        display.setCursor(0, 40);
+        display.print("Dist: ");
+        display.print(distance, 1);
+        display.print(" km");
+        display.display();
+
+      } else {
+        Serial.println("JSON Parsing failed");
+      }
+    } else {
+      Serial.print("Error on HTTP request: ");
+      Serial.println(httpResponseCode);
+    }
+    http.end();
+  }
+}
+
+// Calculate distance between coordinates in km
+float calculateDistance(float lat1, float lon1, float lat2, float lon2) {
+  const float R = 6371.0; // Earth radius in km
+  float dLat = radians(lat2 - lat1);
+  float dLon = radians(lon2 - lon1);
+  float a = sin(dLat / 2) * sin(dLat / 2) + cos(radians(lat1)) * cos(radians(lat2)) * sin(dLon / 2) * sin(dLon / 2);
+  float c = 2 * atan2(sqrt(a), sqrt(1 - a));
+  return R * c;
+}
+
+void loop() {
+  while (gpsSerial.available() > 0) {
+    gps.encode(gpsSerial.read());
+    if (gps.location.isUpdated()) {
+      float myLat = gps.location.lat();
+      float myLon = gps.location.lng();
+      Serial.print("Lat: ");
+      Serial.println(myLat, 6);
+      Serial.print("Lon: ");
+      Serial.println(myLon, 6);
+
+      fetchNOAA19Data(myLat, myLon);
+      delay(10000);  // Update every 10 seconds
+    }
+  }
+}
