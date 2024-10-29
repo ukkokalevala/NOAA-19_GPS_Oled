@@ -23,7 +23,7 @@ SoftwareSerial gpsSerial(D3, D4);  // RX (D3), TX (D4)
 //const char* password = "yourPASSWORD";
 
 // N2YO API
-String apiKey = "NH74CL-F9XL2D-EU42SJ-5CZB";
+String apiKey = " put your api key here ";
 String satID = "33591";  // NOAA-19 Satellite ID
 
 void setup() {
